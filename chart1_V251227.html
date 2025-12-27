@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Graph Visualization - Variables and Relationships</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Arial', sans-serif;
+            background-color: #f8f9fa;
+        }
+        
+        .container {
+            max-width: 100vw;
+            padding: 20px;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .legend {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin: 20px 0;
+            gap: 15px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            background: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .controls {
+            text-align: center;
+            margin: 10px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .controls button {
+            padding: 8px 16px;
+            margin: 0 5px;
+            border: none;
+            border-radius: 5px;
+            background: #3498db;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .controls button:hover {
+            background: #2980b9;
+        }
+        
+        .search-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .search-input {
+            border: none;
+            outline: none;
+            padding: 5px;
+            font-size: 14px;
+            width: 200px;
+        }
+        
+        .search-clear {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            display: none;
+        }
+        
+        .search-results {
+            position: absolute;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: none;
+        }
+        
+        .search-result-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .search-result-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .search-result-item:last-child {
+            border-bottom: none;
+        }
+        
+        #network {
+            width: 100%;
+            height: 80vh;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
+        }
+        
+        .main {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+        
+        #relationsPanel {
+            width: 320px;
+            height: 80vh;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .rel-header {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .rel-list {
+            overflow: auto;
+            padding: 8px 8px 12px 8px;
+            flex: 1;
+        }
+        
+        .rel-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 6px;
+            cursor: default;
+            font-size: 12px;
+            color: #333;
+        }
+        
+        .rel-item:hover {
+            background: #f6f9fc;
+        }
+        
+        .rel-text {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 240px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+        
+        .rel-count {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-radius: 10px;
+            padding: 0 6px;
+            font-size: 11px;
+            margin-left: 8px;
+            min-width: 20px;
+            text-align: center;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            pointer-events: none;
+            opacity: 0;
+            font-size: 12px;
+            max-width: 200px;
+        }
+        
+        .node {
+            stroke: #fff;
+            stroke-width: 2px;
+            cursor: pointer;
+        }
+        
+        .link {
+            stroke: #999;
+            stroke-opacity: 0.6;
+            stroke-width: 1px;
+            marker-end: url(#arrowhead);
+        }
+        
+        .node-label {
+            font-size: 8px;
+            fill: #333;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 id="mainTitle">Réseau de Variables et Relations</h1>
+        
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: #e74c3c;"></div>
+                <span data-cat="Processuelle">Processuelle</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #f39c12;"></div>
+                <span data-cat="Économique">Économique</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #2ecc71;"></div>
+                <span data-cat="Sociétale">Sociétale</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #9b59b6;"></div>
+                <span data-cat="Personnelle">Personnelle</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #3498db;"></div>
+                <span data-cat="Intellectuelle">Intellectuelle</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #1abc9c;"></div>
+                <span data-cat="Sociale">Sociale</span>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <!-- 搜索暂时不用
+            <div class="search-container">
+                <input type="text" class="search-input" placeholder="搜索节点 (例如: Pe1, I4a, 或关键词)" 
+                       oninput="handleSearch()" onkeydown="handleSearchKeydown(event)">
+                <button class="search-clear" onclick="clearSearch()">&times;</button>
+                <div class="search-results" id="searchResults"></div>
+            </div>
+            -->
+            <button onclick="restartSimulation()">Restart Animation</button>
+            <button onclick="centerGraph()">Center Graph</button>
+            <button onclick="toggleLabels()">Toggle Labels</button>
+            <button onclick="toggleHubs()">Toggle Hubs</button>
+            <button onclick="toggleLanguage()" id="langToggleBtn">FR / EN</button>
+        </div>
+        
+        <div class="main">
+            <svg id="network" style="flex: 1 1 auto;"></svg>
+            <div id="relationsPanel">
+                <div class="rel-header" id="relationsHeader">Relations (chaînes)</div>
+                <div id="relationsList" class="rel-list"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="tooltip"></div>
+
+    <script>
+        /*************** 1. 多语言变量字典：FR + EN ***************/
+        const variablesByLang = {
+            fr: {
+                // Processuelle
+                "P1": { name: "P1: Accumulation connaissance", category: "Processuelle" },
+                "P2": { name: "P2: Effets dans l'avenir ou transversaux", category: "Processuelle" },
+
+                // Économique
+                "E1": { name: "E1: Réseau professionnel", category: "Économique" },
+                "E2": { name: "E2: Promouvoir culture", category: "Économique" },
+                "E3": { name: "E3: Opportunités culturelles", category: "Économique" },
+
+                // Sociétale
+                "S1": { name: "S1: Accessibilité et quotidien", category: "Sociétale" },
+                "S2a": { name: "S2a: Diversité des formes artistiques et culturelles proposées", category: "Sociétale" },
+                "S2b": { name: "S2b: Diversité dans la culture française", category: "Sociétale" },
+                "S3": { name: "S3: Inclusion et intégration", category: "Sociétale" },
+
+                // Personnelle
+                "Pe1": { name: "Pe1: Bien-être", category: "Personnelle" },
+                "Pe2a": { name: "Pe2a: Sens personnel", category: "Personnelle" },
+                "Pe2b": { name: "Pe2b: Intérêt, curiosité ou un goût envers l'art", category: "Personnelle" },
+                "Pe2c": { name: "Pe2c: Envie de poursuivre", category: "Personnelle" },
+                "Pe3a": { name: "Pe3a: Ressentis ou émotions", category: "Personnelle" },
+                "Pe3b": { name: "Pe3b: Ressentis ou émotions intenses", category: "Personnelle" },
+                "Pe4a": { name: "Pe4a: Autonomie", category: "Personnelle" },
+                "Pe4b": { name: "Pe4b: Engagement de l'individu", category: "Personnelle" },
+                "Pe4c": { name: "Pe4c: Suivre l'intérêt personnel", category: "Personnelle" },
+                "Pe4d": { name: "Pe4d: Personnalité (curiosité; ouverture)", category: "Personnelle" },
+                "Pe4e": { name: "Pe4e: Toi-même", category: "Personnelle" },
+                "Pe4f": { name: "Pe4f: Liberté, improvisation", category: "Personnelle" },
+
+                // Intellectuelle
+                "I1": { name: "I1: Attention", category: "Intellectuelle" },
+                "I2": { name: "I2: Imagination", category: "Intellectuelle" },
+                "I3": { name: "I3: Réflexion", category: "Intellectuelle" },
+                "I4a": { name: "I4a: Ouverture d'esprit", category: "Intellectuelle" },
+                "I4b": { name: "I4b: (Sa propre) compréhension envers l'art et la culture", category: "Intellectuelle" },
+                "I4c": { name: "I4c: Exemples contre la compréhension", category: "Intellectuelle" },
+                "I4d": { name: "I4d: Conscience de sa limite de connaissance et sa limite physique", category: "Intellectuelle" },
+                "I5": { name: "I5: Mise en liens des choses différentes", category: "Intellectuelle" },
+                "I6a": { name: "I6a: Connaissance ou technique spécifique en arts", category: "Intellectuelle" },
+                "I6b": { name: "I6b: Connaissance artistique et culturelle générale", category: "Intellectuelle" },
+
+                // Sociale
+                "So1a": { name: "So1a: Médiation", category: "Sociale" },
+                "So1b": { name: "So1b: Langue", category: "Sociale" },
+                "So2a": { name: "So2a: Confiance en soi", category: "Sociale" },
+                "So2b": { name: "So2b: Anticipation", category: "Sociale" },
+                "So2c": { name: "So2c: Empathie", category: "Sociale" },
+                "So2d": { name: "So2d: Courage", category: "Sociale" },
+                "So2e": { name: "So2e: Patience", category: "Sociale" },
+                "So2f": { name: "So2f: Responsabilité", category: "Sociale" },
+                "So3a": { name: "So3a: Connexion", category: "Sociale" },
+                "So3b": { name: "So3b: Rencontrer des gens intérêt commun", category: "Sociale" },
+                "So3c": { name: "So3c: Engagement collectif", category: "Sociale" },
+                "So4a": { name: "So4a: Habitudes académiques et professionnelles", category: "Sociale" },
+                "So4b": { name: "So4b: habitudes de l'artiste", category: "Sociale" },
+                "So4c": { name: "So4c: Habitudes de pratique artistique dans l'avenir", category: "Sociale" },
+                "So4d": { name: "So4d: Habitudes dans la vie quotidienne", category: "Sociale" },
+                "So5": { name: "So5: Interculturel", category: "Sociale" }
+            },
+            en: {
+                // 注意：category 仍然用法语名称，保证颜色映射不变
+                "P1": { name: "P1: Knowledge accumulation", category: "Processuelle" },
+                "P2": { name: "P2: Long-term or transversal effects", category: "Processuelle" },
+
+                "E1": { name: "E1: Professional network", category: "Économique" },
+                "E2": { name: "E2: Promoting culture", category: "Économique" },
+                "E3": { name: "E3: Cultural opportunities", category: "Économique" },
+
+                "S1": { name: "S1: Accessibility and everyday life", category: "Sociétale" },
+                "S2a": { name: "S2a: Diversity of artistic and cultural forms", category: "Sociétale" },
+                "S2b": { name: "S2b: Diversity in French culture", category: "Sociétale" },
+                "S3": { name: "S3: Inclusion and integration", category: "Sociétale" },
+
+                "Pe1": { name: "Pe1: Well-being", category: "Personnelle" },
+                "Pe2a": { name: "Pe2a: Personal meaning", category: "Personnelle" },
+                "Pe2b": { name: "Pe2b: Interest, curiosity or taste for art", category: "Personnelle" },
+                "Pe2c": { name: "Pe2c: Desire to continue", category: "Personnelle" },
+                "Pe3a": { name: "Pe3a: Feelings or emotions", category: "Personnelle" },
+                "Pe3b": { name: "Pe3b: Intense feelings or emotions", category: "Personnelle" },
+                "Pe4a": { name: "Pe4a: Autonomy", category: "Personnelle" },
+                "Pe4b": { name: "Pe4b: Individual engagement", category: "Personnelle" },
+                "Pe4c": { name: "Pe4c: Following personal interest", category: "Personnelle" },
+                "Pe4d": { name: "Pe4d: Personality (curiosity; openness)", category: "Personnelle" },
+                "Pe4e": { name: "Pe4e: Yourself", category: "Personnelle" },
+                "Pe4f": { name: "Pe4f: Freedom, improvisation", category: "Personnelle" },
+
+                "I1": { name: "I1: Attention", category: "Intellectuelle" },
+                "I2": { name: "I2: Imagination", category: "Intellectuelle" },
+                "I3": { name: "I3: Reflection", category: "Intellectuelle" },
+                "I4a": { name: "I4a: Open-mindedness", category: "Intellectuelle" },
+                "I4b": { name: "I4b: (Self) understanding of art and culture", category: "Intellectuelle" },
+                "I4c": { name: "I4c: Examples that challenge understanding", category: "Intellectuelle" },
+                "I4d": { name: "I4d: Awareness of limits of knowledge and body", category: "Intellectuelle" },
+                "I5": { name: "I5: Linking different things", category: "Intellectuelle" },
+                "I6a": { name: "I6a: Specific knowledge or technique in arts", category: "Intellectuelle" },
+                "I6b": { name: "I6b: General artistic and cultural knowledge", category: "Intellectuelle" },
+
+                "So1a": { name: "So1a: Mediation", category: "Sociale" },
+                "So1b": { name: "So1b: Language", category: "Sociale" },
+                "So2a": { name: "So2a: Self-confidence", category: "Sociale" },
+                "So2b": { name: "So2b: Anticipation", category: "Sociale" },
+                "So2c": { name: "So2c: Empathy", category: "Sociale" },
+                "So2d": { name: "So2d: Courage", category: "Sociale" },
+                "So2e": { name: "So2e: Patience", category: "Sociale" },
+                "So2f": { name: "So2f: Responsibility", category: "Sociale" },
+                "So3a": { name: "So3a: Connection", category: "Sociale" },
+                "So3b": { name: "So3b: Meeting people with shared interests", category: "Sociale" },
+                "So3c": { name: "So3c: Collective engagement", category: "Sociale" },
+                "So4a": { name: "So4a: Academic and professional habits", category: "Sociale" },
+                "So4b": { name: "So4b: Habits of the artist", category: "Sociale" },
+                "So4c": { name: "So4c: Future artistic practice habits", category: "Sociale" },
+                "So4d": { name: "So4d: Habits in everyday life", category: "Sociale" },
+                "So5": { name: "So5: Intercultural", category: "Sociale" }
+            }
+        };
+
+        // 图例文本
+        const legendLabels = {
+            fr: {
+                "Processuelle": "Processuelle",
+                "Économique": "Économique",
+                "Sociétale": "Sociétale",
+                "Personnelle": "Personnelle",
+                "Intellectuelle": "Intellectuelle",
+                "Sociale": "Sociale"
+            },
+            en: {
+                "Processuelle": "Process-related",
+                "Économique": "Economic",
+                "Sociétale": "Societal",
+                "Personnelle": "Personal",
+                "Intellectuelle": "Intellectual",
+                "Sociale": "Social"
+            }
+        };
+
+        // ✅ 新增：tooltip 用到的多语言 UI 文案
+        const tooltipTexts = {
+            fr: {
+                categoryLabel: "Catégorie",
+                incoming: "Connexions entrantes",
+                outgoing: "Connexions sortantes"
+            },
+            en: {
+                categoryLabel: "Category",
+                incoming: "Incoming links",
+                outgoing: "Outgoing links"
+            }
+        };
+
+        let currentLanguage = 'fr';
+        let variables = variablesByLang[currentLanguage];
+
+        /*************** 2. 原始关系链（保持不变） ***************/
+        const rawRelations = `
+I4c-I6b
+I4c-Pe2a
+I4c-I4a
+I5-I4a-Pe3a
+I4c-Pe2a
+I4c-I4a
+I5-I4a-Pe3a
+I4c-I4b
+I4c-I2
+I4c-I3
+I4c-So4c
+I4c-Pe3a
+Pe3a-So2f
+Pe3b-Pe1
+So1b-I4b
+So1b-I4a
+So1b-So5-I4a
+Pe3b-Pe4e
+Pe3b-Pe2a
+Pe3b-So3c
+I6a-I4d
+I6a-So5
+So1b-S3
+So4d-S3
+I6b-So3a
+I6b-S3
+I4c-I4b
+I4c-P1
+So3c-Pe4b
+So3a-Pe4d
+Pe3b-Pe4e-S1
+Pe3b-I4b-Pe4b
+Pe3b-So2c
+I6b-So2c-Pe2c
+S3-I4d-Pe2c
+So5-So4d
+Pe4d-So4d
+I6b-Pe2c
+Pe3b-Pe2c
+So4c-I6b
+So4c-I4b
+I6b-I4b
+So5-Pe4e
+I6b-I3-I4b
+So5-So4d
+I6b-So2a-I4b
+So3c-So5-I3
+E3-I6b
+P1-I4b
+Pe3b-Pe2b-Pe2c
+I5-P1
+I4a-Pe1
+        `;
+
+        function parseRelations(raw) {
+            const lines = raw.split(/\n+/).map(l => l.trim()).filter(Boolean);
+            const pairs = [];
+            for (const line of lines) {
+                const parts = line.split('-').map(t => t.trim()).filter(Boolean);
+                for (let i = 0; i < parts.length - 1; i++) {
+                    pairs.push([parts[i], parts[i + 1]]);
+                }
+            }
+            const seen = new Set();
+            const uniquePairs = [];
+            for (const [a, b] of pairs) {
+                const key = `${a}->${b}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    uniquePairs.push([a, b]);
+                }
+            }
+            return uniquePairs;
+        }
+
+        const relationships = parseRelations(rawRelations);
+
+        function buildChains(raw) {
+            const lines = raw.split(/\n+/).map(l => l.trim()).filter(Boolean);
+            const countMap = new Map();
+            for (const line of lines) {
+                const normalized = line.replace(/\s+/g, '');
+                countMap.set(normalized, (countMap.get(normalized) || 0) + 1);
+            }
+            return Array.from(countMap.entries()).map(([chain, count]) => ({ chain, count }));
+        }
+
+        const chainsWithCount = buildChains(rawRelations);
+
+        /*************** 3. 颜色映射 & 节点 / 边 ***************/
+        const colorMap = {
+            "Processuelle": "#e74c3c",
+            "Économique": "#f39c12", 
+            "Sociétale": "#2ecc71",
+            "Personnelle": "#9b59b6",
+            "Intellectuelle": "#3498db",
+            "Sociale": "#1abc9c"
+        };
+
+        const nodes = Object.keys(variables).map(id => ({
+            id: id,
+            name: variables[id].name,
+            category: variables[id].category,
+            color: colorMap[variables[id].category]
+        }));
+
+        const links = relationships.map(rel => ({ source: rel[0], target: rel[1] }));
+
+        // 计算度数
+        const degreeById = new Map(nodes.map(n => [n.id, { in: 0, out: 0, total: 0 }]));
+        links.forEach(l => {
+            const s = typeof l.source === 'string' ? l.source : l.source.id;
+            const t = typeof l.target === 'string' ? l.target : l.target.id;
+            if (degreeById.has(s)) degreeById.get(s).out++;
+            if (degreeById.has(t)) degreeById.get(t).in++;
+        });
+        degreeById.forEach(v => { v.total = v.in + v.out; });
+
+        const degreeValuesSorted = nodes.map(n => degreeById.get(n.id).total).sort(d3.ascending);
+        const q90 = d3.quantile(degreeValuesSorted, 0.9) || 0;
+        const hubThreshold = Math.max(3, Math.ceil(q90));
+        let hubSet = new Set(nodes.filter(n => degreeById.get(n.id).total >= hubThreshold).map(n => n.id));
+        if (hubSet.size < 3) {
+            const top = nodes
+                .map(n => ({ id: n.id, deg: degreeById.get(n.id).total }))
+                .filter(d => d.deg > 0)
+                .sort((a, b) => b.deg - a.deg)
+                .slice(0, 3)
+                .map(d => d.id);
+            top.forEach(id => hubSet.add(id));
+        }
+
+        let showHubs = false;
+
+        function computeLevels(nodesArr, linksArr) {
+            const nodeIds = new Set(nodesArr.map(n => n.id));
+            const adj = new Map();
+            const inDegree = new Map();
+            const level = new Map();
+
+            nodeIds.forEach(id => {
+                adj.set(id, []);
+                inDegree.set(id, 0);
+                level.set(id, 0);
+            });
+
+            for (const { source, target } of linksArr) {
+                if (!nodeIds.has(source) || !nodeIds.has(target)) continue;
+                adj.get(source).push(target);
+                inDegree.set(target, (inDegree.get(target) || 0) + 1);
+            }
+
+            const queue = [];
+            inDegree.forEach((deg, id) => { if (deg === 0) queue.push(id); });
+
+            while (queue.length) {
+                const u = queue.shift();
+                for (const v of adj.get(u)) {
+                    if (level.get(v) < level.get(u) + 1) level.set(v, level.get(u) + 1);
+                    inDegree.set(v, inDegree.get(v) - 1);
+                    if (inDegree.get(v) === 0) queue.push(v);
+                }
+            }
+            return level;
+        }
+
+        const levelById = computeLevels(nodes, links);
+
+        /*************** 4. 创建 SVG & 力导布局 ***************/
+        const rightPanelWidth = 340 + 20;
+        const width = Math.max(600, window.innerWidth - 40 - rightPanelWidth);
+        const height = window.innerHeight * 0.8;
+
+        const svg = d3.select("#network")
+            .attr("width", width)
+            .attr("height", height);
+
+        const maxLevel = Math.max(0, ...Array.from(levelById.values()));
+        const levelScale = d3.scaleLinear()
+            .domain([0, Math.max(1, maxLevel)])
+            .range([50, width - 50]);
+
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 4])
+            .on("zoom", handleZoom);
+
+        svg.call(zoom);
+
+        const defs = svg.append("defs");
+        defs.append("marker")
+            .attr("id", "arrowhead")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 15)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-5L10,0L0,5")
+            .attr("fill", "#999");
+
+        defs.append("marker")
+            .attr("id", "arrowhead-highlight")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 15)
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-5L10,0L0,5")
+            .attr("fill", "#ff6b6b");
+
+        const g = svg.append("g");
+        const tooltip = d3.select(".tooltip");
+
+        const relationsListEl = document.getElementById('relationsList');
+        function renderRelationsList() {
+            if (!relationsListEl) return;
+            relationsListEl.innerHTML = '';
+            chainsWithCount.forEach(({ chain, count }) => {
+                const item = document.createElement('div');
+                item.className = 'rel-item';
+                const text = document.createElement('div');
+                text.className = 'rel-text';
+                text.textContent = chain;
+                item.appendChild(text);
+                if (count > 1) {
+                    const countEl = document.createElement('div');
+                    countEl.className = 'rel-count';
+                    countEl.textContent = `×${count}`;
+                    item.appendChild(countEl);
+                }
+                item.addEventListener('mouseenter', () => highlightChain(chain));
+                item.addEventListener('mouseleave', () => clearHighlight());
+                relationsListEl.appendChild(item);
+            });
+        }
+
+        const simulation = d3.forceSimulation(nodes)
+            .force("link", d3.forceLink(links).id(d => d.id).distance(40))
+            .force("charge", d3.forceManyBody().strength(-100))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("collision", d3.forceCollide().radius(12))
+            .force("x", d3.forceX(d => levelScale(levelById.get(d.id) || 0)).strength(0.4))
+            .force("y", d3.forceY(height / 2).strength(0.08));
+
+        const link = g.append("g")
+            .selectAll("line")
+            .data(links)
+            .join("line")
+            .attr("class", "link");
+
+        const getBaseRadius = d => Math.max(5, Math.min(15, d.name.length / 8));
+
+        const node = g.append("g")
+            .selectAll("circle")
+            .data(nodes)
+            .join("circle")
+            .attr("class", "node")
+            .attr("r", d => getBaseRadius(d))
+            .attr("fill", d => d.color)
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended))
+            .on("mouseover", handleMouseOver)
+            .on("mouseout", handleMouseOut);
+
+        let showLabels = true;
+        const labels = g.append("g")
+            .selectAll("text")
+            .data(nodes)
+            .join("text")
+            .attr("class", "node-label")
+            .text(d => d.id)
+            .style("display", showLabels ? "block" : "none");
+
+        simulation.on("tick", () => {
+            link
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+
+            node
+                .attr("cx", d => d.x)
+                .attr("cy", d => d.y);
+
+            labels
+                .attr("x", d => d.x)
+                .attr("y", d => d.y + 4);
+        });
+
+        function updateHubStyles() {
+            if (!showHubs) {
+                node
+                    .attr("r", d => getBaseRadius(d))
+                    .style("stroke-width", 2)
+                    .style("stroke", "#fff");
+                labels
+                    .style("font-weight", "normal")
+                    .style("font-size", "8px");
+                return;
+            }
+            node
+                .attr("r", d => getBaseRadius(d) + (hubSet.has(d.id) ? 3 : 0))
+                .style("stroke-width", d => hubSet.has(d.id) ? 3 : 2)
+                .style("stroke", d => hubSet.has(d.id) ? "#f1c40f" : "#fff");
+            labels
+                .style("font-weight", d => hubSet.has(d.id) ? "bold" : "normal")
+                .style("font-size", d => hubSet.has(d.id) ? "10px" : "8px");
+        }
+
+        function toggleHubs() {
+            showHubs = !showHubs;
+            updateHubStyles();
+        }
+
+        function handleZoom(event) {
+            g.attr("transform", event.transform);
+        }
+
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        function handleMouseOver(event, d) {
+            let incomingCount = 0;
+            let outgoingCount = 0;
+            links.forEach(link => {
+                const sid = typeof link.source === "string" ? link.source : link.source.id;
+                const tid = typeof link.target === "string" ? link.target : link.target.id;
+                if (sid === d.id) outgoingCount++;
+                if (tid === d.id) incomingCount++;
+            });
+
+            const catLabel = legendLabels[currentLanguage][d.category] || d.category;
+            const t = tooltipTexts[currentLanguage];  // ✅ 选当前语言文案
+
+            tooltip
+                .style("opacity", 1)
+                .html(`
+                    <strong>${d.id}</strong><br/>
+                    ${d.name}<br/>
+                    <em>${t.categoryLabel}: ${catLabel}</em><br/>
+                    <small>${t.incoming}: ${incomingCount}</small><br/>
+                    <small>${t.outgoing}: ${outgoingCount}</small>
+                `)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+
+            // 进 + 出都红色高亮
+            highlightFromNode(d.id);
+        }
+
+        function handleMouseOut() {
+            tooltip.style("opacity", 0);
+            clearHighlight();
+            updateHubStyles();
+        }
+
+        let currentSearchResults = [];
+        let selectedSearchIndex = -1;
+        let highlightedNodes = new Set();
+
+        function handleSearch() {
+            const searchInput = document.querySelector('.search-input');
+            const searchResults = document.getElementById('searchResults');
+            const clearButton = document.querySelector('.search-clear');
+            const query = searchInput.value.toLowerCase().trim();
+
+            if (query === '') {
+                searchResults.style.display = 'none';
+                clearButton.style.display = 'none';
+                clearHighlight();
+                return;
+            }
+
+            clearButton.style.display = 'block';
+
+            currentSearchResults = nodes.filter(node => 
+                node.id.toLowerCase().includes(query) || 
+                node.name.toLowerCase().includes(query) ||
+                node.category.toLowerCase().includes(query)
+            );
+
+            if (currentSearchResults.length > 0) {
+                displaySearchResults(currentSearchResults);
+                searchResults.style.display = 'block';
+            } else {
+                searchResults.style.display = 'none';
+            }
+        }
+
+        function displaySearchResults(results) {
+            const searchResults = document.getElementById('searchResults');
+            searchResults.innerHTML = '';
+            
+            results.slice(0, 10).forEach((result, index) => {
+                const item = document.createElement('div');
+                item.className = 'search-result-item';
+                item.innerHTML = `<strong>${result.id}</strong><br><small>${result.name}</small>`;
+                item.onclick = () => selectSearchResult(result, index);
+                searchResults.appendChild(item);
+            });
+        }
+
+        function selectSearchResult(nodeData, index) {
+            selectedSearchIndex = index;
+            highlightNode(nodeData);
+            const searchResults = document.getElementById('searchResults');
+            if (searchResults) searchResults.style.display = 'none';
+            
+            const transform = d3.zoomTransform(svg.node());
+            const scale = transform.k || 1;
+            const translate = [
+                width / 2 - scale * nodeData.x,
+                height / 2 - scale * nodeData.y
+            ];
+            
+            svg.transition()
+                .duration(750)
+                .call(zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
+        }
+
+        function highlightNode(targetNode) {
+            highlightedNodes.clear();
+            highlightedNodes.add(targetNode.id);
+
+            links.forEach(link => {
+                const sid = typeof link.source === 'string' ? link.source : link.source.id;
+                const tid = typeof link.target === 'string' ? link.target : link.target.id;
+                if (sid === targetNode.id || tid === targetNode.id) {
+                    highlightedNodes.add(sid);
+                    highlightedNodes.add(tid);
+                }
+            });
+
+            node.style("opacity", n => highlightedNodes.has(n.id) ? 1 : 0.2)
+                .style("stroke-width", n => n.id === targetNode.id ? 4 : 2)
+                .style("stroke", n => n.id === targetNode.id ? "#ff6b6b" : "#fff");
+
+            link
+                .style("opacity", l => {
+                    const sid = typeof l.source === 'string' ? l.source : l.source.id;
+                    const tid = typeof l.target === 'string' ? l.target : l.target.id;
+                    return (sid === targetNode.id || tid === targetNode.id) ? 1 : 0.1;
+                })
+                .style("stroke", l => {
+                    const sid = typeof l.source === 'string' ? l.source : l.source.id;
+                    const tid = typeof l.target === 'string' ? l.target : l.target.id;
+                    return (sid === targetNode.id || tid === targetNode.id) ? "#ff6b6b" : "#999";
+                })
+                .style("marker-end", l => {
+                    const sid = typeof l.source === 'string' ? l.source : l.source.id;
+                    const tid = typeof l.target === 'string' ? l.target : l.target.id;
+                    return (sid === targetNode.id || tid === targetNode.id)
+                        ? "url(#arrowhead-highlight)"
+                        : "url(#arrowhead)";
+                });
+
+            labels
+                .style("opacity", n => highlightedNodes.has(n.id) ? 1 : 0.3)
+                .style("font-weight", n => n.id === targetNode.id ? "bold" : "normal");
+        }
+
+        function highlightChain(chainStr) {
+            const parts = chainStr.split('-').map(t => t.trim()).filter(Boolean);
+            const nodeSet = new Set(parts);
+            const pairSet = new Set();
+            for (let i = 0; i < parts.length - 1; i++) pairSet.add(`${parts[i]}->${parts[i+1]}`);
+
+            node.style("opacity", n => nodeSet.has(n.id) ? 1 : 0.1)
+                .style("stroke-width", n => nodeSet.has(n.id) ? 3 : 2)
+                .style("stroke", n => nodeSet.has(n.id) ? "#ff6b6b" : "#fff");
+
+            labels.style("opacity", n => nodeSet.has(n.id) ? 1 : 0.2)
+                  .style("font-weight", n => nodeSet.has(n.id) ? "bold" : "normal");
+
+            link.style("opacity", l => {
+                    const sid = typeof l.source === 'string' ? l.source : l.source.id;
+                    const tid = typeof l.target === 'string' ? l.target : l.target.id;
+                    return pairSet.has(`${sid}->${tid}`) ? 1 : 0.05;
+                })
+                .style("stroke-width", l => {
+                    const sid = typeof l.source === 'string' ? l.source : l.source.id;
+                    const tid = typeof l.target === 'string' ? l.target : l.target.id;
+                    return pairSet.has(`${sid}->${tid}`) ? "2px" : "1px";
+                })
+                .style("stroke", l => {
+                    const sid = typeof l.source === 'string' ? l.source : l.source.id;
+                    const tid = typeof l.target === 'string' ? l.target : l.target.id;
+                    return pairSet.has(`${sid}->${tid}`) ? "#ff6b6b" : "#999";
+                })
+                .style("marker-end", l => {
+                    const sid = typeof l.source === 'string' ? l.source : l.source.id;
+                    const tid = typeof l.target === 'string' ? l.target : l.target.id;
+                    return pairSet.has(`${sid}->${tid}`) ? "url(#arrowhead-highlight)" : "url(#arrowhead)";
+                });
+        }
+
+        function highlightFromNode(nodeId) {
+            const nodeData = nodes.find(n => n.id === nodeId);
+            if (!nodeData) return;
+            highlightNode(nodeData);
+        }
+
+        function clearHighlight() {
+            highlightedNodes.clear();
+
+            node
+                .style("opacity", 1)
+                .style("stroke-width", 2)
+                .style("stroke", "#fff");
+
+            labels
+                .style("opacity", 1)
+                .style("font-weight", "normal")
+                .style("font-size", "8px");
+
+            link
+                .style("opacity", 0.6)
+                .style("stroke-width", "1px")
+                .style("stroke", "#999")
+                .style("marker-end", "url(#arrowhead)");
+        }
+
+        function restartSimulation() {
+            simulation.alpha(1).restart();
+        }
+
+        function centerGraph() {
+            svg.transition()
+                .duration(750)
+                .call(zoom.transform, d3.zoomIdentity);
+        }
+
+        function toggleLabels() {
+            showLabels = !showLabels;
+            labels.style("display", showLabels ? "block" : "none");
+        }
+
+        function handleSearchKeydown(event) {
+            if (event.key === 'Enter') {
+                if (currentSearchResults.length > 0) {
+                    selectSearchResult(currentSearchResults[0], 0);
+                }
+            }
+        }
+
+        function clearSearch() {
+            const input = document.querySelector('.search-input');
+            const clearButton = document.querySelector('.search-clear');
+            const searchResults = document.getElementById('searchResults');
+            if (input) input.value = '';
+            if (clearButton) clearButton.style.display = 'none';
+            if (searchResults) searchResults.style.display = 'none';
+            clearHighlight();
+        }
+
+        /*************** 5. 语言切换 ***************/
+        function applyLanguage(lang) {
+            currentLanguage = lang;
+            variables = variablesByLang[lang];
+
+            // 更新节点的 name（tooltip 用）
+            nodes.forEach(n => {
+                const v = variables[n.id];
+                if (v) {
+                    n.name = v.name;
+                    n.category = v.category; // 类别标签保持法文
+                }
+            });
+
+            // 更新标题
+            const titleEl = document.getElementById('mainTitle');
+            if (titleEl) {
+                titleEl.textContent = (lang === 'fr')
+                    ? "Réseau de Variables et Relations"
+                    : "Network of Variables and Relations";
+            }
+
+            // 更新右侧标题
+            const relHeader = document.getElementById('relationsHeader');
+            if (relHeader) {
+                relHeader.textContent = (lang === 'fr')
+                    ? "Relations (chaînes)"
+                    : "Relations (chains)";
+            }
+
+            // 更新图例文本
+            document.querySelectorAll('.legend-item span[data-cat]').forEach(span => {
+                const cat = span.getAttribute('data-cat');
+                span.textContent = legendLabels[lang][cat] || cat;
+            });
+
+            // 按钮文案
+            const btn = document.getElementById('langToggleBtn');
+            if (btn) {
+                btn.textContent = (lang === 'fr') ? "FR / EN" : "EN / FR";
+            }
+        }
+
+        function toggleLanguage() {
+            const newLang = (currentLanguage === 'fr') ? 'en' : 'fr';
+            applyLanguage(newLang);
+        }
+
+        /*************** 初始化 ***************/
+        renderRelationsList();
+        updateHubStyles();
+        applyLanguage(currentLanguage); // 初始为法文
+    </script>
+</body>
+</html>
