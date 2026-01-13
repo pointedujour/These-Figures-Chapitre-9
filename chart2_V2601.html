@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagramme de Sankey des Relations Sentiment-Dimension-Étape</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; background-color: #f5f5f5; }
+        .container { width: 100vw; height: 100vh; padding: 5px; box-sizing: border-box; }
+        .chart-container { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); padding: 10px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+        .legend { margin-top: 8px; font-size: 11px; color: #666; flex-shrink: 0; max-height: 120px; overflow-y: auto; }
+        .legend p { margin: 4px 0; }
+        .legend strong { color: #333; }
+        .svg-container { width: 100%; flex: 1; overflow: auto; min-height: 0; display: flex; justify-content: center; align-items: flex-start; }
+        .node-text { font-size: 10px; fill: #333; transition: opacity 0.3s; }
+        .node-text.dimmed { opacity: 0.3; }
+        .connection-path { opacity: 0.6; transition: opacity 0.3s, stroke-width 0.3s; cursor: pointer; }
+        .connection-path:hover { opacity: 0.9; }
+        .connection-path.highlighted { opacity: 1; stroke-width: 3px !important; }
+        .connection-path.dimmed { opacity: 0.15; }
+        .connection-path.one-to-one { stroke-dasharray: 5,5; }
+        .connection-path.one-to-many { stroke-dasharray: none; }
+        .connection-path.dimension-to-stage { stroke-dasharray: none; }
+        .connection-path.sentiment-to-stage { stroke-dasharray: none; }
+        .node-rect { transition: stroke-width 0.3s, stroke 0.3s, opacity 0.3s; cursor: pointer; }
+        .node-rect:hover { stroke: #333; stroke-width: 2px; }
+        .node-rect.highlighted { stroke: #333; stroke-width: 3px; }
+        .node-rect.dimmed { opacity: 0.3; }
+        .link-label { font-size: 10px; fill: #111; pointer-events: none; transition: opacity 0.3s; }
+        .link-label.dimmed { opacity: 0.3; }
+        .tooltip { position: absolute; background: rgba(0, 0, 0, 0.8); color: white; padding: 8px 12px; border-radius: 4px; font-size: 12px; pointer-events: none; z-index: 1000; max-width: 320px; line-height: 1.4; }
+        .filter-container { margin-bottom: 10px; padding: 10px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef; flex-shrink: 0; }
+        .filter-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: #333; }
+        .filter-options { display: flex; flex-wrap: wrap; gap: 8px; }
+        .filter-checkbox { display: flex; align-items: center; padding: 4px 8px; background: white; border: 2px solid #ddd; border-radius: 4px; cursor: pointer; transition: all 0.2s; font-size: 11px; font-weight: 500; user-select: none; }
+        .filter-checkbox:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .filter-checkbox input { margin-right: 6px; }
+        .filter-actions { margin-top: 10px; display: flex; gap: 8px; }
+        .filter-btn { padding: 4px 12px; font-size: 12px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
+        .filter-btn:hover { background: #f0f0f0; }
+        .filter-btn.primary { background: #007bff; color: white; border-color: #007bff; }
+        .filter-btn.primary:hover { background: #0056b3; }
+        .lang-toggle { margin-bottom: 8px; display: flex; justify-content: flex-end; gap: 6px; }
+        .lang-btn { padding: 2px 8px; font-size: 11px; border-radius: 999px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+        .lang-btn.active { background: #007bff; color: #fff; border-color: #007bff; }
+        .legend-color { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: middle; }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useMemo } = React;
+
+/* -------- 维度大类颜色 -------- */
+const categoryColorMap = {
+    'Processuelle': '#8884d8',
+    'Économique': '#82ca9d',
+    'Sociétale': '#ffc658',
+    'Personnelle': '#ff7c7c',
+    'Intellectuelle': '#8dd1e1',
+    'Sociale': '#d084d0'
+};
+
+/* -------- 维度大类英文显示 -------- */
+const categoryNamesEn = {
+    'Processuelle': 'Procedural',
+    'Économique': 'Economic',
+    'Sociétale': 'Societal',
+    'Personnelle': 'Personal',
+    'Intellectuelle': 'Intellectual',
+    'Sociale': 'Social'
+};
+
+/* -------- 英文名称映射 -------- */
+const dimensionNamesEn = {
+    P1: "Knowledge accumulation",
+    P2: "Long-term or transversal effects",
+    E1: "Professional network",
+    E2: "Promoting culture",
+    E3: "Cultural opportunities",
+    S1: "Accessibility and everyday life",
+    S2a: "Diversity of artistic and cultural forms",
+    S2b: "Diversity in French culture",
+    S3: "Inclusion and integration",
+    Pe1: "Well-being",
+    Pe2a: "Personal meaning",
+    Pe2b: "Interest, curiosity or taste for art",
+    Pe2c: "Desire to continue",
+    Pe3a: "Feelings or emotions",
+    Pe3b: "Intense feelings or emotions",
+    Pe4a: "Autonomy",
+    Pe4b: "Individual engagement",
+    Pe4c: "Following personal interest",
+    Pe4d: "Personality (curiosity; openness)",
+    Pe4e: "Yourself",
+    Pe4f: "Freedom, improvisation",
+    I1: "Attention",
+    I2: "Imagination",
+    I3: "Reflection",
+    I4a: "Open-mindedness",
+    I4b: "(Self) understanding of art and culture",
+    I4c: "Examples that challenge understanding",
+    I4d: "Awareness of limits of knowledge and body",
+    I5: "Linking different things",
+    I6a: "Specific knowledge or technique in arts",
+    I6b: "General artistic and cultural knowledge",
+    So1a: "Mediation",
+    So1b: "Language",
+    So2a: "Self-confidence",
+    So2b: "Anticipation",
+    So2c: "Empathy",
+    So2d: "Courage",
+    So2e: "Patience",
+    So2f: "Responsibility",
+    So3a: "Connection",
+    So3b: "Meeting people with shared interests",
+    So3c: "Collective engagement",
+    So4a: "Academic and professional habits",
+    So4b: "Habits of the artist",
+    So4c: "Future artistic practice habits",
+    So4d: "Habits in everyday life",
+    So5: "Intercultural"
+};
+
+const sentimentNamesEn = {
+    "Rupture de culture": "Cultural disruption",
+    "Étonné choc choqué frappant": "Surprised / shocked / striking",
+    "Intéressant": "Interesting",
+    "Beau": "Beautiful",
+    "Nouveauté original fresh rafraîchissant": "Novel / original / fresh",
+    "Positif bon": "Positive / good",
+    "Plaisir": "Pleasure",
+    "Curiosité": "Curiosity",
+    "Intense intensité énergie fort épuisant": "Intense / strong / exhausting",
+    "Magique": "Magical",
+    "Dégoûtant désagréable dérangeant timide": "Disgusting / unpleasant / disturbing / shy",
+    "Satisfaisant": "Satisfying",
+    "Engageant": "Engaging",
+    "Sentiment appartenance": "Sense of belonging",
+    "Sentir le soin": "Feeling cared for",
+    "Confortable rassurant": "Comforting / reassuring",
+    "Marrant": "Funny",
+    "Sentir l'héritage hommage dépôt": "Feeling of heritage / tribute",
+    "Extraordinaire incroyable": "Extraordinary / incredible",
+    "Peur stressant": "Fear / stressful",
+    "Sentir particulier différent": "Feeling special / different",
+    "Amusé": "Amused",
+    "Révélation émerveillement": "Revelation / wonder",
+    "Quotidien": "Everyday",
+    "Exclu": "Excluded",
+    "Sentir à l'aise": "Feeling at ease",
+    "Amusant": "Amusing",
+    "Reposant": "Restful",
+    "Ne sentir pas la fatigue": "Not feeling tired",
+    "Utilité": "Usefulness",
+    "Content": "Content / happy",
+    "Ennuyé": "Bored",
+    "Vide": "Empty",
+    "Comique": "Comical",
+    "Bonheur": "Happiness",
+    "Passionnant": "Exciting",
+    "Avoir vécu qqch": "Having experienced something",
+    "Enthousiaste": "Enthusiastic",
+    "Immersive": "Immersive",
+    "Fun": "Fun",
+    "Bizarre": "Strange",
+    "Drôle": "Funny",
+    "Surpris": "Surprised",
+    "Inquiet déroutant incapable de comprendre anxieux": "Worried / confused / unable to understand / anxious",
+    "Abstrait": "Abstract",
+    "Défensif": "Defensive",
+    "sentir la progression": "Feeling progress",
+    "Simple": "Simple",
+    "Insécurité linguistique": "Linguistic insecurity",
+    "Rigolo": "Funny",
+    "Regret": "Regret",
+    "Sympa": "Nice / pleasant",
+    "Absurde": "Absurd",
+    "Douteux": "Doubtful"
+};
+
+const stageNamesEn = {
+    "Étape 1": "Stage 1",
+    "Étape 2": "Stage 2",
+    "Étape 3": "Stage 3",
+    "Étape 4": "Stage 4"
+};
+
+const SankeyChart = () => {
+    const [lang, setLang] = useState('fr');
+    const [hoveredNode, setHoveredNode] = useState(null);
+    const [hoveredLink, setHoveredLink] = useState(null);
+    const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, content: '' });
+    const [selectedDimensions, setSelectedDimensions] = useState(new Set());
+    const [connectionTypeFilter, setConnectionTypeFilter] = useState('all');
+
+    const texts = {
+        fr: {
+            connectionTypeTitle: 'Type de connexion',
+            connectionAll: 'Tous',
+            connectionOneToMany: 'Plusieurs-vers-un',
+            connectionOneToOne: 'Un-vers-un',
+            dimensionFilterTitle: 'Filtre de dimension',
+            selectAll: 'Tout sélectionner',
+            clearAll: 'Tout effacer',
+            allDimensions: 'Afficher toutes les dimensions',
+            selectedDimensionCount: (n) => `${n} catégories de dimensions sélectionnées`,
+            explanationTitle: 'Explication :',
+            explanationLine1: '• Gauche : Classification des dimensions | Centre : Types de sentiment | Droite : Étapes',
+            explanationLine2: '• L’épaisseur des lignes représente la force des connexions. De la dimension vers le sentiment, l’épaisseur correspond au nombre total d’occurrences. Du sentiment vers l’étape, les connexions sont décomposées par catégorie de dimension (une ligne colorée par catégorie), avec une épaisseur proportionnelle à la fréquence de chaque catégorie.',
+            explanationLine3: '• Les nombres affichés sur les lignes (ex. ×2, ×4) indiquent explicitement la fréquence exacte de la connexion correspondante et complètent l’encodage visuel par l’épaisseur.',
+            explanationLine4: '• La couleur encode la catégorie de dimension (Intellectuelle, Personnelle, Sociale, etc.).',
+            explanationLine5: '• Lorsque plusieurs catégories de dimension contribuent à une même relation sentiment–étape, la connexion est affichée sous forme de lignes colorées parallèles afin d’éviter la perte d’information due à l’agrégation.',
+            explanationLine6: '• Les lignes continues représentent des connexions plusieurs-vers-un, tandis que les lignes en pointillés représentent des connexions un-vers-un.',
+            currentFilter: 'Filtrage actuel :',
+            filterConnectionTypeLabel: 'Type de connexion',
+            filterDimensionsLabel: 'Catégories de dimensions',
+            type_all: 'Tous',
+            type_one_to_many: 'Plusieurs-vers-un',
+            type_one_to_one: 'Un-vers-un',
+            langFr: 'FR',
+            langEn: 'EN'
+        },
+        en: {
+            connectionTypeTitle: 'Connection type',
+            connectionAll: 'All',
+            connectionOneToMany: 'Many-to-one',
+            connectionOneToOne: 'One-to-one',
+            dimensionFilterTitle: 'Dimension filter',
+            selectAll: 'Select all',
+            clearAll: 'Clear all',
+            allDimensions: 'Show all dimensions',
+            selectedDimensionCount: (n) => `${n} dimension categories selected`,
+            explanationTitle: 'Explanation:',
+            explanationLine1: '• Left: Dimension classifications | Center: Sentiment types | Right: Stages',
+            explanationLine2: '• Line thickness represents connection strength: Dimension → Sentiment = total occurrences; Sentiment → Stage is decomposed by dimension category (one colored line per category), with thickness proportional to that category’s frequency.',
+            explanationLine3: '• Numbers shown on the lines (e.g. ×2, ×4) explicitly indicate the exact frequency of the corresponding connection and complement the thickness encoding.',
+            explanationLine4: '• Line color encodes the dimension category (Intellectual, Personal, Social, etc.).',
+            explanationLine5: '• When multiple dimension categories contribute to the same Sentiment–Stage relation, the connection is shown as parallel colored lines to avoid information loss from aggregation.',
+            explanationLine6: '• Solid lines = many-to-one; dashed lines = one-to-one. (Sentiment → Stage links are always solid.)',
+            currentFilter: 'Current filter:',
+            filterConnectionTypeLabel: 'Connection type',
+            filterDimensionsLabel: 'Dimension categories',
+            type_all: 'All',
+            type_one_to_many: 'Many-to-one',
+            type_one_to_one: 'One-to-one',
+            langFr: 'FR',
+            langEn: 'EN'
+        }
+    };
+    const t = texts[lang];
+    const isEN = lang === 'en';
+
+    const displayCategoryName = (cat) => (isEN ? (categoryNamesEn[cat] || cat) : cat);
+
+    /* ---------- 原始数据 ---------- */
+    const baseData = useMemo(() => {
+        const oneToManyData = [
+            ["Rupture de culture", "S3", "2"],
+            ["Rupture de culture", "I2", "2"],
+            ["Rupture de culture", "I4c", "2"],
+            ["Rupture de culture", "I6a", "2"],
+            ["Rupture de culture", "I6b", "2"],
+            ["Rupture de culture", "So1b", "2"],
+            ["Rupture de culture", "So3a", "2"],
+            ["Rupture de culture", "So4d", "2"],
+            ["Rupture de culture", "So5", "2"],
+            ["Étonné choc choqué frappant", "Pe3b", "3"],
+            ["Étonné choc choqué frappant", "I2", "2"],
+            ["Étonné choc choqué frappant", "I2", "4"],
+            ["Étonné choc choqué frappant", "I3", "2"],
+            ["Étonné choc choqué frappant", "I3", "4"],
+            ["Étonné choc choqué frappant", "I4a", "2"],
+            ["Étonné choc choqué frappant", "I4b", "3"],
+            ["Étonné choc choqué frappant", "I4b", "4"],
+            ["Étonné choc choqué frappant", "I6b", "2"],
+            ["Étonné choc choqué frappant", "I6b", "4"],
+            ["Étonné choc choqué frappant", "So5", "2"],
+            ["Étonné choc choqué frappant", "So5", "4"],
+            ["Intéressant", "Pe3a", "4"],
+            ["Intéressant", "I2", "4"],
+            ["Intéressant", "I4a", "4"],
+            ["Intéressant", "I4b", "4"],
+            ["Intéressant", "I6a", "4"],
+            ["Intéressant", "I6b", "4"],
+            ["Intéressant", "So3a", "4"],
+            ["Beau", "Pe3b", "3"],
+            ["Beau", "I2", "3"],
+            ["Beau", "I4a", "3"],
+            ["Beau", "I6b", "3"],
+            ["Beau", "I6b", "4"],
+            ["Beau", "So4c", "3"],
+            ["Beau", "So4c", "4"],
+            ["Nouveauté original fresh rafraîchissant", "P1", "4"],
+            ["Nouveauté original fresh rafraîchissant", "I4a", "4"],
+            ["Nouveauté original fresh rafraîchissant", "I5", "4"],
+            ["Nouveauté original fresh rafraîchissant", "I6b", "4"],
+            ["Nouveauté original fresh rafraîchissant", "So3c", "4"],
+            ["Positif bon", "Pe3a", "4"],
+            ["Positif bon", "Pe3b", "4"],
+            ["Positif bon", "I3", "4"],
+            ["Positif bon", "I4a", "4"],
+            ["Plaisir", "Pe1", "4"],
+            ["Plaisir", "Pe3a", "4"],
+            ["Plaisir", "Pe4c", "4"],
+            ["Curiosité", "Pe2b", "1"],
+            ["Curiosité", "Pe2b", "4"],
+            ["Curiosité", "Pe4d", "1"],
+            ["Curiosité", "Pe4d", "4"],
+            ["Curiosité", "I4a", "1"],
+            ["Curiosité", "I4a", "4"],
+            ["Intense intensité énergie fort épuisant", "Pe2a", "4"],
+            ["Intense intensité énergie fort épuisant", "Pe3b", "4"],
+            ["Intense intensité énergie fort épuisant", "So3c", "4"],
+            ["Magique", "Pe3b", "3"],
+            ["Magique", "I2", "3"],
+            ["Magique", "I4a", "3"],
+            ["Dégoûtant désagréable dérangeant timide", "Pe3a", "2"],
+            ["Dégoûtant désagréable dérangeant timide", "Pe4e", "2"],
+            ["Dégoûtant désagréable dérangeant timide", "I4a", "2"],
+            ["Satisfaisant", "P1", "4"],
+            ["Satisfaisant", "Pe2a", "4"],
+            ["Engageant", "S3", "4"],
+            ["Engageant", "Pe4b", "4"],
+            ["Sentiment appartenance", "S3", "4"],
+            ["Sentiment appartenance", "Pe4b", "4"],
+            ["Sentir le soin", "S3", "4"],
+            ["Sentir le soin", "Pe1", "4"],
+            ["Confortable rassurant", "Pe1", "4"],
+            ["Confortable rassurant", "Pe4e", "4"],
+            ["Marrant", "Pe3a", "4"],
+            ["Marrant", "So3a", "4"],
+            ["Sentir l'héritage hommage dépôt", "I2", "4"],
+            ["Sentir l'héritage hommage dépôt", "I6b", "2"],
+            ["Extraordinaire incroyable", "Pe1", "3"],
+            ["Extraordinaire incroyable", "Pe1", "4"],
+            ["Extraordinaire incroyable", "Pe3b", "3"],
+            ["Peur stressant", "Pe3a", "2"],
+            ["Sentir particulier différent", "Pe3a", "2"],
+            ["Sentir particulier différent", "So5", "2"],
+            ["Amusé", "Pe4c", "1"],
+            ["Amusé", "Pe3b", "3"],
+            ["Révélation émerveillement", "I5", "3"],
+            ["Révélation émerveillement", "Pe3b", "3"],
+            ["Peur stressant", "So2a", "2"],
+            ["Intéressant", "I4b", "3"]
+        ];
+
+        const oneToOneData = [
+            ["Quotidien", "S1", "4"],
+            ["Exclu", "S3", "2"],
+            ["Sentir à l'aise", "S3", "4"],
+            ["Amusant", "Pe1", "4"],
+            ["Reposant", "Pe1", "4"],
+            ["Ne sentir pas la fatigue", "Pe1", "4"],
+            ["Utilité", "Pe2a", "4"],
+            ["Content", "Pe2a", "4"],
+            ["Ennuyé", "Pe3a", "2"],
+            ["Vide", "Pe3a", "2"],
+            ["Comique", "Pe3a", "4"],
+            ["Bonheur", "Pe3a", "4"],
+            ["Passionnant", "Pe3b", "3"],
+            ["Avoir vécu qqch", "Pe3b", "3"],
+            ["Enthousiaste", "Pe4c", "1"],
+            ["Immersive", "I1", "4"],
+            ["Fun", "I4a", "1"],
+            ["Fun", "I4a", "4"],
+            ["Bizarre", "I4a", "2"],
+            ["Drôle", "I4a", "4"],
+            ["Surpris", "I4a", "2"],
+            ["Inquiet déroutant incapable de comprendre anxieux", "I4c", "2"],
+            ["Abstrait", "I4c", "2"],
+            ["Défensif", "I4c", "2"],
+            ["sentir la progression", "I4d", "4"],
+            ["Simple", "I6a", "4"],
+            ["Insécurité linguistique", "So1b", "2"],
+            ["Rigolo", "So3a", "2"],
+            ["Rigolo", "So3a", "3"],
+            ["Rigolo", "So3a", "4"],
+            ["Regret", "So3a", "4"],
+            ["Sympa", "So3c", "4"],
+            ["Absurde", "I4a", "2"],
+            ["Douteux", "I4c", "2"]
+        ];
+
+        const dimensionCategories = {
+            'P1': { category: 'Processuelle', color: '#8884d8', name: 'Accumulation connaissance' },
+            'P2': { category: 'Processuelle', color: '#8884d8', name: 'Effets dans l\'avenir ou transversaux' },
+            'E1': { category: 'Économique', color: '#82ca9d', name: 'Réseau professionnel' },
+            'E2': { category: 'Économique', color: '#82ca9d', name: 'Promouvoir culture' },
+            'E3': { category: 'Économique', color: '#82ca9d', name: 'Opportunités culturelles' },
+            'S1': { category: 'Sociétale', color: '#ffc658', name: 'Accessibilité et quotidien' },
+            'S2a': { category: 'Sociétale', color: '#ffc658', name: 'Diversité des formes artistiques et culturelles proposées' },
+            'S2b': { category: 'Sociétale', color: '#ffc658', name: 'Diversité dans la culture française' },
+            'S3': { category: 'Sociétale', color: '#ffc658', name: 'Inclusion et intégration' },
+            'Pe1': { category: 'Personnelle', color: '#ff7c7c', name: 'Bien-être' },
+            'Pe2a': { category: 'Personnelle', color: '#ff7c7c', name: 'Sens personnel' },
+            'Pe2b': { category: 'Personnelle', color: '#ff7c7c', name: 'Intérêt, curiosité ou un goût envers l\'art' },
+            'Pe2c': { category: 'Personnelle', color: '#ff7c7c', name: 'Envie de poursuivre' },
+            'Pe3a': { category: 'Personnelle', color: '#ff7c7c', name: 'Ressentis ou émotions' },
+            'Pe3b': { category: 'Personnelle', color: '#ff7c7c', name: 'Ressentis ou émotions intenses' },
+            'Pe4a': { category: 'Personnelle', color: '#ff7c7c', name: 'Autonomie' },
+            'Pe4b': { category: 'Personnelle', color: '#ff7c7c', name: 'Engagement de l\'individu' },
+            'Pe4c': { category: 'Personnelle', color: '#ff7c7c', name: 'Suivre l\'intérêt personnel' },
+            'Pe4d': { category: 'Personnelle', color: '#ff7c7c', name: 'Personnalité (curiosité; ouverture)' },
+            'Pe4e': { category: 'Personnelle', color: '#ff7c7c', name: 'Toi-même' },
+            'Pe4f': { category: 'Personnelle', color: '#ff7c7c', name: 'Liberté, improvisation' },
+            'I1': { category: 'Intellectuelle', color: '#8dd1e1', name: 'Attention' },
+            'I2': { category: 'Intellectuelle', color: '#8dd1e1', name: 'Imagination' },
+            'I3': { category: 'Intellectuelle', color: '#8dd1e1', name: 'Réflexion' },
+            'I4a': { category: 'Intellectuelle', color: '#8dd1e1', name: 'Ouverture d\'esprit' },
+            'I4b': { category: 'Intellectuelle', color: '#8dd1e1', name: '(Sa propre) compréhension envers l\'art et la culture' },
+            'I4c': { category: 'Intellectuelle', color: '#8dd1e1', name: 'Exemples contre la compréhension' },
+            'I4d': { category: 'Intellectuelle', color: '#8dd1e1', name: 'Conscience de sa limite de connaissance et sa limite physique' },
+            'I5': { category: 'Intellectuelle', color: '#8dd1e1', name: 'Mise en liens des choses différentes' },
+            'I6a': { category: 'Intellectuelle', color: '#8dd1e1', name: 'Connaissance ou technique spécifique en arts' },
+            'I6b': { category: 'Intellectuelle', color: '#8dd1e1', name: 'Connaissance artistique et culturelle générale' },
+            'So1a': { category: 'Sociale', color: '#d084d0', name: 'Médiation' },
+            'So1b': { category: 'Sociale', color: '#d084d0', name: 'Langue' },
+            'So2a': { category: 'Sociale', color: '#d084d0', name: 'Confiance en soi' },
+            'So2b': { category: 'Sociale', color: '#d084d0', name: 'Anticipation' },
+            'So2c': { category: 'Sociale', color: '#d084d0', name: 'Empathie' },
+            'So2d': { category: 'Sociale', color: '#d084d0', name: 'Courage' },
+            'So2e': { category: 'Sociale', color: '#d084d0', name: 'Patience' },
+            'So2f': { category: 'Sociale', color: '#d084d0', name: 'Responsabilité' },
+            'So3a': { category: 'Sociale', color: '#d084d0', name: 'Connexion' },
+            'So3b': { category: 'Sociale', color: '#d084d0', name: 'Rencontrer des gens intérêt commun' },
+            'So3c': { category: 'Sociale', color: '#d084d0', name: 'Engagement collectif' },
+            'So4a': { category: 'Sociale', color: '#d084d0', name: 'Habitudes académiques et professionnelles' },
+            'So4b': { category: 'Sociale', color: '#d084d0', name: 'habitudes de l\'artiste' },
+            'So4c': { category: 'Sociale', color: '#d084d0', name: 'Habitudes de pratique artistique dans l\'avenir' },
+            'So4d': { category: 'Sociale', color: '#d084d0', name: 'Habitudes dans la vie quotidienne' },
+            'So5': { category: 'Sociale', color: '#d084d0', name: 'Interculturel' }
+        };
+
+        return { oneToManyData, oneToOneData, dimensionCategories };
+    }, []);
+
+    /* ---------- 按筛选重建 nodes/links ---------- */
+    const filteredData = useMemo(() => {
+        const { oneToManyData, oneToOneData, dimensionCategories } = baseData;
+
+        const selectedDimNames = new Set();
+        if (selectedDimensions.size > 0) {
+            Object.entries(dimensionCategories).forEach(([name, info]) => {
+                if (selectedDimensions.has(info.category)) selectedDimNames.add(name);
+            });
+        } else {
+            Object.keys(dimensionCategories).forEach(name => selectedDimNames.add(name));
+        }
+
+        let active = [];
+        if (connectionTypeFilter === 'all') {
+            active = [
+                ...oneToManyData.map(d => [...d, 'one-to-many']),
+                ...oneToOneData.map(d => [...d, 'one-to-one'])
+            ];
+        } else if (connectionTypeFilter === 'one-to-many') {
+            active = oneToManyData.map(d => [...d, 'one-to-many']);
+        } else {
+            active = oneToOneData.map(d => [...d, 'one-to-one']);
+        }
+
+        active = active.filter(([, dim]) => selectedDimNames.has(dim));
+
+        const connections = {};
+        const connectionTypes = {};
+        const sentimentStageBreakdown = {};
+
+        active.forEach(([sentiment, dim, etape, type]) => {
+            const k1 = `${sentiment}|${dim}`;
+            const k2 = `${dim}|Étape ${etape}`;
+            connections[k1] = (connections[k1] || 0) + 1;
+            connections[k2] = (connections[k2] || 0) + 1;
+            connectionTypes[k1] = type;
+            connectionTypes[k2] = 'dimension-to-stage';
+
+            const dimInfo = dimensionCategories[dim];
+            const cat = dimInfo ? dimInfo.category : 'Autre';
+            const stageKey = `${sentiment}|Étape ${etape}`;
+            if (!sentimentStageBreakdown[stageKey]) sentimentStageBreakdown[stageKey] = { total: 0, categories: {} };
+            sentimentStageBreakdown[stageKey].total += 1;
+            if (!sentimentStageBreakdown[stageKey].categories[cat]) {
+                sentimentStageBreakdown[stageKey].categories[cat] = { count: 0, color: dimInfo ? dimInfo.color : (categoryColorMap[cat] || '#8884d8') };
+            }
+            sentimentStageBreakdown[stageKey].categories[cat].count += 1;
+        });
+
+        const sentiments = [...new Set(active.map(d => d[0]))];
+        const dimensions = [...new Set(active.map(d => d[1]))];
+        const etapes = ["Étape 1", "Étape 2", "Étape 3", "Étape 4"];
+
+        const nodes = [
+            ...dimensions.map(name => ({ name, category: 'dimension', color: dimensionCategories[name]?.color || '#999999' })),
+            ...sentiments.map(name => ({ name, category: 'sentiment' })),
+            ...etapes.map(name => ({ name, category: 'etape' }))
+        ];
+
+        const links = [];
+
+        // 维度 → 情感
+        Object.entries(connections).forEach(([key, value]) => {
+            if (key.includes('|') && !key.includes('Étape')) {
+                const [sentiment, dim] = key.split('|');
+                if (sentiments.includes(sentiment) && dimensions.includes(dim)) {
+                    links.push({ source: nodes.findIndex(n => n.name === dim), target: nodes.findIndex(n => n.name === sentiment), value, connectionType: connectionTypes[key] });
+                }
+            }
+        });
+
+        // 情感 → 阶段：按维度大类拆分
+        Object.entries(sentimentStageBreakdown).forEach(([key, info]) => {
+            const [sentiment, etape] = key.split('|');
+            if (!sentiments.includes(sentiment) || !etapes.includes(etape)) return;
+
+            const catEntries = Object.entries(info.categories);
+            const srcIndex = nodes.findIndex(n => n.name === sentiment);
+            const tgtIndex = nodes.findIndex(n => n.name === etape);
+
+            if (catEntries.length > 1) {
+                const segCount = catEntries.length;
+                catEntries.forEach(([cat, catInfo], idx) => {
+                    links.push({ source: srcIndex, target: tgtIndex, value: catInfo.count, connectionType: 'sentiment-to-stage', dimensionColor: catInfo.color, isSegment: true, segmentIndex: idx, segmentCount: segCount });
+                });
+            } else {
+                const only = catEntries[0];
+                const color = only ? only[1].color : '#8884d8';
+                links.push({ source: srcIndex, target: tgtIndex, value: info.total, connectionType: 'sentiment-to-stage', dimensionColor: color, isSegment: false });
+            }
+        });
+
+        return { nodes, links, dimensionCategories };
+    }, [baseData, selectedDimensions, connectionTypeFilter]);
+
+    /* ---------- 维度大类选项 ---------- */
+    const dimensionCategoryOptions = useMemo(() => {
+        const set = new Set();
+        Object.values(baseData.dimensionCategories).forEach(d => set.add(d.category));
+        return Array.from(set).sort();
+    }, [baseData]);
+
+    const handleDimensionToggle = (cat) => {
+        const ns = new Set(selectedDimensions);
+        if (ns.has(cat)) ns.delete(cat); else ns.add(cat);
+        setSelectedDimensions(ns);
+    };
+
+    const handleSelectAll = () => setSelectedDimensions(new Set(dimensionCategoryOptions));
+    const handleClearAll = () => setSelectedDimensions(new Set());
+    const handleConnectionTypeChange = (type) => setConnectionTypeFilter(type);
+
+    return (
+        <div className="container">
+            <div className="chart-container">
+                <div className="lang-toggle">
+                    <button className={`lang-btn ${lang === 'fr' ? 'active' : ''}`} onClick={() => setLang('fr')}>{t.langFr}</button>
+                    <button className={`lang-btn ${lang === 'en' ? 'active' : ''}`} onClick={() => setLang('en')}>{t.langEn}</button>
+                </div>
+
+                <div className="filter-container">
+                    <div style={{display: 'flex', gap: '20px', alignItems: 'flex-start'}}>
+                        <div style={{flex: '0 0 auto'}}>
+                            <div className="filter-title">{t.connectionTypeTitle}</div>
+                            <div className="filter-options">
+                                {['all','one-to-many','one-to-one'].map(type => {
+                                    const label = type === 'all' ? t.connectionAll : type === 'one-to-many' ? t.connectionOneToMany : t.connectionOneToOne;
+                                    return (
+                                        <label key={type} className={`filter-checkbox ${connectionTypeFilter === type ? 'active' : ''}`}
+                                            onClick={() => handleConnectionTypeChange(type)}
+                                            style={{ backgroundColor: connectionTypeFilter === type ? '#007bff' : 'white', color: connectionTypeFilter === type ? 'white' : '#333', borderColor: connectionTypeFilter === type ? '#007bff' : '#ddd' }}>
+                                            <input type="radio" name="connectionType" checked={connectionTypeFilter === type} onChange={() => handleConnectionTypeChange(type)} onClick={e => e.stopPropagation()} style={{display:'none'}} />
+                                            {label}
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div style={{flex:1}}>
+                            <div className="filter-title">{t.dimensionFilterTitle}</div>
+                            <div className="filter-options">
+                                {dimensionCategoryOptions.map(cat => {
+                                    const color = categoryColorMap[cat] || '#999';
+                                    const active = selectedDimensions.has(cat);
+                                    return (
+                                        <label key={cat} className={`filter-checkbox ${active ? 'active' : ''}`}
+                                            style={{ borderColor: active ? color : '#ddd', backgroundColor: active ? color : 'white', color: active ? 'white' : '#333' }}>
+                                            <input type="checkbox" checked={active} onChange={() => handleDimensionToggle(cat)} onClick={e => e.stopPropagation()} style={{display:'none'}} />
+                                            <span className="legend-color" style={{backgroundColor:color}}></span>
+                                            {displayCategoryName(cat)}
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                            <div className="filter-actions">
+                                <button className="filter-btn primary" onClick={handleSelectAll}>{t.selectAll}</button>
+                                <button className="filter-btn" onClick={handleClearAll}>{t.clearAll}</button>
+                                <span style={{fontSize:'12px',color:'#666',marginLeft:'10px'}}>
+                                    {selectedDimensions.size === 0 ? t.allDimensions : t.selectedDimensionCount(selectedDimensions.size)}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <CustomSankey
+                    data={filteredData}
+                    lang={lang}
+                    hoveredNode={hoveredNode}
+                    setHoveredNode={setHoveredNode}
+                    hoveredLink={hoveredLink}
+                    setHoveredLink={setHoveredLink}
+                    tooltip={tooltip}
+                    setTooltip={setTooltip}
+                    connectionTypeFilter={connectionTypeFilter}
+                />
+
+                <div className="legend">
+                    <p><strong>{t.explanationTitle}</strong></p>
+                    <p>{t.explanationLine1}</p>
+                    <p>{t.explanationLine2}</p>
+                    <p>{t.explanationLine3}</p>
+                    {t.explanationLine4 && <p>{t.explanationLine4}</p>}
+                    {t.explanationLine5 && <p>{t.explanationLine5}</p>}
+                    {t.explanationLine6 && <p>{t.explanationLine6}</p>}
+                    <div style={{marginTop:'8px',fontSize:'12px',color:'#666'}}>
+                        <strong>{t.currentFilter}</strong>{' '}
+                        {t.filterConnectionTypeLabel}: {connectionTypeFilter === 'all' ? t.type_all : connectionTypeFilter === 'one-to-many' ? t.type_one_to_many : t.type_one_to_one}
+                        {selectedDimensions.size > 0 && <> | {t.filterDimensionsLabel}: {Array.from(selectedDimensions).map(displayCategoryName).join(', ')}</>}
+                    </div>
+                </div>
+            </div>
+
+            {tooltip.visible && (
+                <div className="tooltip" style={{ left: tooltip.x + 'px', top: tooltip.y + 'px' }}>
+                    {tooltip.content.split('\n').map((line,i)=><div key={i}>{line}</div>)}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const CustomSankey = ({ data, lang, hoveredNode, setHoveredNode, hoveredLink, setHoveredLink, tooltip, setTooltip, connectionTypeFilter }) => {
+    const { nodes, links, dimensionCategories } = data;
+    const isEN = lang === 'en';
+
+    const containerRef = React.useRef();
+    const [dims, setDims] = React.useState({ width: 1400, height: 800 });
+
+    React.useEffect(() => {
+        const update = () => {
+            if (containerRef.current) {
+                const rect = containerRef.current.getBoundingClientRect();
+                setDims({ width: Math.max(1200, rect.width - 20), height: Math.max(600, rect.height - 10) });
+            }
+        };
+        update();
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+    }, []);
+
+    const { width, height } = dims;
+    const nodeWidth = 30;
+    const nodePadding = 8;
+
+    const maxDimensionTextWidth = Math.min(
+        480,
+        Math.max(200, Math.max(...nodes.filter(n => n.category==='dimension').map(n => {
+            const info = dimensionCategories[n.name];
+            const txt = info ? `${n.name}: ${info.name}` : n.name;
+            return txt.length;
+        })) * 6)
+    );
+
+    const layerWidth = 480;
+    const dimNodes = nodes.filter(n=>n.category==='dimension');
+    const sentNodes = nodes.filter(n=>n.category==='sentiment');
+    const stageNodes = nodes.filter(n=>n.category==='etape');
+
+    const maxLayerCount = Math.max(dimNodes.length, sentNodes.length, stageNodes.length);
+    const minNodeHeight = 12;
+    const requiredHeight = 40 + maxLayerCount * minNodeHeight + (maxLayerCount-1) * nodePadding;
+    const computedHeight = Math.max(height, requiredHeight);
+    const layerHeight = computedHeight - 40;
+
+    const calcPositions = (layerNodes, x) => {
+        const h = Math.max(12, (layerHeight - (layerNodes.length-1)*nodePadding) / layerNodes.length);
+        return layerNodes.map((n,i)=>({ ...n, x, y: 20 + i*(h+nodePadding), width: nodeWidth, height: h }));
+    };
+
+    const startX = maxDimensionTextWidth;
+    const dimPos = calcPositions(dimNodes, startX);
+    const sentPos = calcPositions(sentNodes, startX + layerWidth);
+    const stagePos = calcPositions(stageNodes, startX + 2*layerWidth);
+    const positionedNodes = [...dimPos, ...sentPos, ...stagePos];
+
+    const nodeDisplayLabel = (node) => {
+        if (node.category === 'dimension') {
+            const info = dimensionCategories[node.name];
+            if (!info) return node.name;
+            const name = isEN ? (dimensionNamesEn[node.name] || info.name) : info.name;
+            return `${node.name}: ${name}`;
+        }
+        if (node.category === 'sentiment') return isEN ? (sentimentNamesEn[node.name] || node.name) : node.name;
+        if (node.category === 'etape') return isEN ? (stageNamesEn[node.name] || node.name) : node.name;
+        return node.name;
+    };
+
+    const handleNodeMouseEnter = (node, evt) => {
+        setHoveredNode(node.name);
+        const nodeIndex = positionedNodes.findIndex(n=>n.name===node.name);
+        const incoming = links.filter(l=>l.target===nodeIndex);
+        const outgoing = links.filter(l=>l.source===nodeIndex);
+        const inCount = incoming.reduce((s,l)=>s+l.value,0);
+        const outCount = outgoing.reduce((s,l)=>s+l.value,0);
+
+        let content = '';
+        if (node.category === 'dimension') {
+            const label = nodeDisplayLabel(node);
+            content = isEN ? `${label}\nIncoming connections: ${inCount}\nOutgoing connections: ${outCount}` : `${label}\nConnexions entrantes: ${inCount}\nConnexions sortantes: ${outCount}`;
+        } else if (node.category === 'sentiment') {
+            const label = nodeDisplayLabel(node);
+            content = isEN ? `Sentiment: ${label}\nOutgoing connections: ${outCount}` : `Sentiment: ${label}\nConnexions sortantes: ${outCount}`;
+        } else if (node.category === 'etape') {
+            const label = nodeDisplayLabel(node);
+            content = isEN ? `${label}\nIncoming connections: ${inCount}` : `${label}\nConnexions entrantes: ${inCount}`;
+        }
+
+        setTooltip({ visible: true, x: evt.clientX + 10, y: evt.clientY - 10, content });
+    };
+
+    const handleNodeMouseLeave = () => { setHoveredNode(null); setTooltip({visible:false,x:0,y:0,content:''}); };
+
+    const handleLinkMouseEnter = (link, evt) => {
+        setHoveredLink(link);
+        const s = positionedNodes[link.source];
+        const t = positionedNodes[link.target];
+        const sLabel = nodeDisplayLabel(s);
+        const tLabel = nodeDisplayLabel(t);
+        setTooltip({
+            visible:true,
+            x:evt.clientX+10,
+            y:evt.clientY-10,
+            content: isEN ? `${sLabel} → ${tLabel}\nConnection strength: ${link.value}` : `${sLabel} → ${tLabel}\nIntensité de connexion: ${link.value}`
+        });
+    };
+
+    const handleLinkMouseLeave = () => { setHoveredLink(null); setTooltip({visible:false,x:0,y:0,content:''}); };
+
+    const isNodeHighlighted = (node) => {
+        if (!hoveredNode && !hoveredLink) return false;
+        if (hoveredNode === node.name) return true;
+        if (hoveredLink) {
+            const s = positionedNodes[hoveredLink.source];
+            const t = positionedNodes[hoveredLink.target];
+            return node.name === s.name || node.name === t.name;
+        }
+        return false;
+    };
+    const isNodeDimmed = (node) => (!hoveredNode && !hoveredLink) ? false : !isNodeHighlighted(node);
+
+    const isLinkHighlighted = (link) => {
+        if (!hoveredNode && !hoveredLink) return false;
+        if (hoveredLink === link) return true;
+        if (hoveredNode) {
+            const s = positionedNodes[link.source];
+            const t = positionedNodes[link.target];
+            return hoveredNode === s.name || hoveredNode === t.name;
+        }
+        return false;
+    };
+    const isLinkDimmed = (link) => (!hoveredNode && !hoveredLink) ? false : !isLinkHighlighted(link);
+
+    return (
+        <div className="svg-container" ref={containerRef}>
+            <svg width={width} height={computedHeight} viewBox={`0 0 ${width} ${computedHeight}`} preserveAspectRatio="xMidYMid meet"
+                style={{border:'1px solid #ddd',borderRadius:'4px',display:'block',maxWidth:'100%',height:'auto'}}>
+                {links.map((link,i)=>{
+                    const s = positionedNodes[link.source];
+                    const t = positionedNodes[link.target];
+                    const strokeWidth = Math.max(1, Math.min(15, link.value*1.5));
+                    const hi = isLinkHighlighted(link);
+                    const dim = isLinkDimmed(link);
+
+                    const x1 = s.x + s.width;
+                    const y1 = s.y + s.height/2;
+                    const x2 = t.x;
+                    const y2 = t.y + t.height/2;
+
+                    const cx1 = s.x + s.width + 240;
+                    const cx2 = t.x - 240;
+
+                    let cy1 = y1;
+                    let cy2 = y2;
+
+                    if (link.isSegment && link.segmentCount > 1) {
+                        const delta = 35; // 线间距：建议 20~40
+                        const offset = (link.segmentIndex - (link.segmentCount - 1)/2) * delta;
+                        cy1 = y1 + offset;
+                        cy2 = y2 + offset;
+                    }
+
+                    const d = `M${x1},${y1} C${cx1},${cy1} ${cx2},${cy2} ${x2},${y2}`;
+
+                    const tMid = 0.5;
+                    const om = 1 - tMid;
+                    const midX = om**3 * x1 + 3*om**2*tMid*cx1 + 3*om*tMid**2*cx2 + tMid**3*x2;
+                    const midY = om**3 * y1 + 3*om**2*tMid*cy1 + 3*om*tMid**2*cy2 + tMid**3*y2;
+
+                    const showCount =
+                        link.value > 1 &&
+                        (connectionTypeFilter === 'one-to-many' ||
+                         (connectionTypeFilter === 'all' && link.connectionType !== 'one-to-one'));
+
+                    return (
+                        <g key={i}>
+                            <path className={`connection-path ${link.connectionType||''} ${hi?'highlighted':''} ${dim?'dimmed':''}`}
+                                d={d} fill="none"
+                                stroke={link.dimensionColor || s.color || t.color || '#8884d8'}
+                                strokeWidth={hi ? Math.max(3, strokeWidth) : strokeWidth}
+                                onMouseEnter={e=>handleLinkMouseEnter(link,e)}
+                                onMouseLeave={handleLinkMouseLeave}
+                            />
+                            {showCount && (
+                                <text className={`link-label ${dim?'dimmed':''}`} x={midX} y={midY-4} textAnchor="middle" dominantBaseline="central">
+                                    ×{link.value}
+                                </text>
+                            )}
+                        </g>
+                    );
+                })}
+
+                {positionedNodes.map((node,i)=>{
+                    const hi = isNodeHighlighted(node);
+                    const dim = isNodeDimmed(node);
+                    return (
+                        <g key={i}>
+                            <rect className={`node-rect ${hi?'highlighted':''} ${dim?'dimmed':''}`}
+                                x={node.x} y={node.y} width={node.width} height={node.height}
+                                fill={node.color || (node.category==='sentiment' ? '#333' : node.category==='etape' ? '#666' : '#999')}
+                                stroke="#fff" strokeWidth={hi?3:1}
+                                onMouseEnter={e=>handleNodeMouseEnter(node,e)}
+                                onMouseLeave={handleNodeMouseLeave}
+                            />
+                            <text
+                                x={node.category==='dimension' || node.category==='sentiment' ? node.x-10 : node.x + node.width + 10}
+                                y={node.y + node.height/2}
+                                textAnchor={node.category==='dimension' || node.category==='sentiment' ? 'end' : 'start'}
+                                dominantBaseline="middle"
+                                className={`node-text ${dim?'dimmed':''}`}
+                                style={{fontSize: node.category==='sentiment' ? '9px':'10px'}}
+                            >
+                                {nodeDisplayLabel(node)}
+                            </text>
+                        </g>
+                    );
+                })}
+            </svg>
+        </div>
+    );
+};
+
+ReactDOM.render(<SankeyChart />, document.getElementById('root'));
+</script>
+</body>
+</html>
